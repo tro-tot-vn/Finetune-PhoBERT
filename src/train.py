@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch.nn import CrossEntropyLoss
 from sklearn.utils.class_weight import compute_class_weight
+from callbacks import JsonLossLogger
 
 from datasets import Dataset, DatasetDict
 from transformers import (
@@ -142,7 +143,9 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="f1_inv",  # ưu tiên F1 lớp invalid
         fp16=fp16_flag,
+        logging_strategy="steps",
         logging_steps=50,
+        save_steps=0,
         dataloader_num_workers=0,
         report_to="none",
         seed=SEED,
@@ -157,7 +160,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=2), JsonLossLogger("out/metrics/train_log.ndjson")]
     )
 
     trainer.train()
