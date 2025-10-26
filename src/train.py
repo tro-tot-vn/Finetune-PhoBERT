@@ -25,13 +25,17 @@ OUTPUT_DIR = "out/phobert-moderation"
 SAVE_DIR   = "models/phobert-moderation"
 
 MAX_LENGTH = 192
-BATCH_TRAIN = 8
-BATCH_EVAL  = 16
-GRAD_ACCUM  = 2          # giữ batch hiệu dụng lớn: BATCH_TRAIN * GRAD_ACCUM
+BATCH_TRAIN = 16         # ↑ Tăng từ 8 (T4 handle được)
+BATCH_EVAL  = 32         # ↑ Tăng từ 16
+GRAD_ACCUM  = 2          # giữ batch hiệu dụng lớn: BATCH_TRAIN * GRAD_ACCUM = 32
 EPOCHS      = 3
 LR          = 2e-5
 
 SEED        = 42
+
+# GPU Optimization flags
+USE_GRADIENT_CHECKPOINTING = True   # Tiết kiệm VRAM, train batch lớn hơn
+USE_TORCH_COMPILE = False           # PyTorch 2.x compile (có thể làm chậm trên Colab)
 # ====================================================================
 
 def read_split(data_dir):
@@ -151,13 +155,34 @@ def main():
     collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8)
 
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
-
+    
+    # ========== GPU OPTIMIZATIONS ==========
+    # 1. Gradient Checkpointing: Trade compute for memory
+    if USE_GRADIENT_CHECKPOINTING and torch.cuda.is_available():
+        model.gradient_checkpointing_enable()
+        print("[Optimization] Gradient checkpointing enabled")
+    
+    # 2. Torch Compile (PyTorch 2.x+): Faster forward/backward
+    if USE_TORCH_COMPILE and torch.__version__ >= "2.0.0":
+        try:
+            model = torch.compile(model, mode="reduce-overhead")
+            print("[Optimization] Torch compile enabled")
+        except Exception as e:
+            print(f"[Warning] Torch compile failed: {e}")
+    
     # class weights nếu imbalance
     cw = get_class_weights(train_df)
     if cw is not None:
         print(f"[Info] Using class weights: class0={float(cw[0]):.3f}, class1={float(cw[1]):.3f}")
 
     fp16_flag = torch.cuda.is_available()
+    
+    # Use bf16 if available (better for T4+)
+    bf16_flag = False
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        bf16_flag = True
+        fp16_flag = False
+        print("[Optimization] Using bfloat16 (better than fp16 on modern GPUs)")
 
     args = TrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -171,13 +196,30 @@ def main():
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="f1_inv",  # ưu tiên F1 lớp invalid
+        
+        # Mixed precision training
         fp16=fp16_flag,
+        bf16=bf16_flag,
+        
+        # Optimization settings
+        optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",  # Fused optimizer (faster)
+        gradient_checkpointing=USE_GRADIENT_CHECKPOINTING,
+        
+        # Logging & saving
         logging_strategy="steps",
         logging_steps=50,
         save_steps=0,
-        dataloader_num_workers=0,
+        
+        # DataLoader optimization
+        dataloader_num_workers=2,  # ↑ Parallel data loading (Colab has 2 CPUs)
+        dataloader_pin_memory=True,  # Faster CPU->GPU transfer
+        
+        # Misc
         report_to="none",
         seed=SEED,
+        
+        # Speed optimizations
+        tf32=True if torch.cuda.is_available() else False,  # TF32 matmul on Ampere+ GPUs
     )
 
     # Trainer initialization (compatible with old and new transformers versions)
@@ -235,6 +277,10 @@ def main():
         "weight_decay": 0.01,
         "seed": SEED,
         "fp16": fp16_flag,
+        "bf16": bf16_flag,
+        "gradient_checkpointing": USE_GRADIENT_CHECKPOINTING,
+        "optimizer": "adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
+        "tf32": torch.cuda.is_available(),
     }
     
     # Load training history
