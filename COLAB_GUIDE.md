@@ -98,21 +98,32 @@ files.download('results.zip')
 
 ---
 
-## ⚠️ Common Issues
+## ⚠️ Common Issues & Warnings
+
+### Normal Warnings (OK to ignore)
+```
+E0000 00:00:xxx ... Unable to register cuFFT factory...
+E0000 00:00:xxx ... Unable to register cuDNN factory...
+FutureWarning: `tokenizer` is deprecated...
+```
+**These are normal** - TensorFlow backend warnings và deprecation warnings. Code vẫn chạy bình thường!
 
 ### Issue 1: `TypeError: evaluation_strategy` 
 **Fixed!** Code đã update cho transformers mới.
 
-### Issue 2: `FileNotFoundError: data/`
+### Issue 2: `TypeError: compute_loss() got unexpected keyword` 
+**Fixed!** Code đã tương thích với transformers>=4.35.0.
+
+### Issue 3: `FileNotFoundError: data/`
 **Solution**: Chắc chắn đã chạy `%cd /content/Finetune-PhoBERT` trước!
 
-### Issue 3: CUDA out of memory
+### Issue 4: CUDA out of memory
 **Solutions**:
 - Giảm `BATCH_TRAIN` trong `src/train.py` (line 27)
 - Giảm `MAX_LENGTH` (line 26)
 - Dùng Runtime > Change runtime type > T4 GPU
 
-### Issue 4: Session timeout
+### Issue 5: Session timeout
 **Solution**: 
 - Download model thường xuyên
 - Hoặc mount Google Drive:

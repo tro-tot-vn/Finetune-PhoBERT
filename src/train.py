@@ -99,7 +99,11 @@ class WeightedTrainer(Trainer):
         super().__init__(**kwargs)
         self.class_weight = class_weight
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        """
+        Compute loss with class weights.
+        Compatible with transformers>=4.35.0 (added num_items_in_batch parameter).
+        """
         labels = inputs.get("labels")
         outputs = model(**{k: v for k, v in inputs.items() if k != "labels"})
         logits = outputs.logits
@@ -176,17 +180,27 @@ def main():
         seed=SEED,
     )
 
-    trainer = WeightedTrainer(
-        class_weight=cw,
-        model=model,
-        args=args,
-        train_dataset=enc["train"],
-        eval_dataset=enc["validation"],
-        tokenizer=tokenizer,
-        data_collator=collator,
-        compute_metrics=compute_metrics,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=2), JsonLossLogger("out/metrics/train_log.ndjson")]
-    )
+    # Trainer initialization (compatible with old and new transformers versions)
+    trainer_kwargs = {
+        "class_weight": cw,
+        "model": model,
+        "args": args,
+        "train_dataset": enc["train"],
+        "eval_dataset": enc["validation"],
+        "data_collator": collator,
+        "compute_metrics": compute_metrics,
+        "callbacks": [EarlyStoppingCallback(early_stopping_patience=2), JsonLossLogger("out/metrics/train_log.ndjson")]
+    }
+    
+    # Use 'processing_class' if available (transformers>=4.45), else 'tokenizer'
+    import transformers
+    from packaging import version
+    if version.parse(transformers.__version__) >= version.parse("4.45.0"):
+        trainer_kwargs["processing_class"] = tokenizer
+    else:
+        trainer_kwargs["tokenizer"] = tokenizer
+    
+    trainer = WeightedTrainer(**trainer_kwargs)
 
     trainer.train()
     
