@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 MODEL_DIR = "models/phobert-moderation"
 TEST_CSV  = "data/test.csv"
 MAX_LENGTH = 192
-THRESHOLD = float(os.environ.get("THRESHOLD", "0.5"))  # có thể set THRESHOLD=0.47
+THRESHOLD = float(os.environ.get("THRESHOLD", "0.5"))  # có thể set THRESHOLD
 OUT_DIR = "out/metrics"
 os.makedirs(OUT_DIR, exist_ok=True)
 # ==============================
