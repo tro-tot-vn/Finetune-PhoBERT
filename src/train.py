@@ -163,7 +163,7 @@ def main():
         gradient_accumulation_steps=GRAD_ACCUM,
         num_train_epochs=EPOCHS,
         weight_decay=0.01,
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",  # Changed from evaluation_strategy
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="f1_inv",  # ưu tiên F1 lớp invalid

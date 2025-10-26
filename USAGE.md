@@ -6,10 +6,25 @@ Hệ thống đã được nâng cấp với các công cụ visualization và r
 
 ## 🚀 Cài đặt
 
+### Local
 ```bash
-# Cài đặt dependencies (đã thêm seaborn)
+# Cài đặt dependencies
 pip install -r requirements.txt
 ```
+
+### Google Colab
+```python
+# Clone repo
+!git clone https://github.com/your-repo/Finetune-PhoBERT.git
+
+# CD vào project root (QUAN TRỌNG!)
+%cd /content/Finetune-PhoBERT
+
+# Install dependencies
+!pip install -r requirements.txt
+```
+
+**⚠️ Lưu ý Colab**: Dùng `%cd` (có dấu %), KHÔNG phải `!cd`!
 
 ## 📊 Workflow
 
