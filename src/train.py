@@ -25,16 +25,16 @@ OUTPUT_DIR = "out/phobert-moderation"
 SAVE_DIR   = "models/phobert-moderation"
 
 MAX_LENGTH = 192
-BATCH_TRAIN = 16         # ↑ Tăng từ 8 (T4 handle được)
-BATCH_EVAL  = 32         # ↑ Tăng từ 16
-GRAD_ACCUM  = 2          # giữ batch hiệu dụng lớn: BATCH_TRAIN * GRAD_ACCUM = 32
+BATCH_TRAIN = 32         # ↑↑ Tăng mạnh để ăn đầy VRAM (was 16)
+BATCH_EVAL  = 64         # ↑↑ Tăng mạnh (was 32)
+GRAD_ACCUM  = 1          # ↓ Giảm vì batch đã lớn (effective = 32)
 EPOCHS      = 3
 LR          = 2e-5
 
 SEED        = 42
 
 # GPU Optimization flags
-USE_GRADIENT_CHECKPOINTING = True   # Tiết kiệm VRAM, train batch lớn hơn
+USE_GRADIENT_CHECKPOINTING = False  # ❌ TẮT để ăn nhiều VRAM hơn, train nhanh hơn!
 USE_TORCH_COMPILE = False           # PyTorch 2.x compile (có thể làm chậm trên Colab)
 # ====================================================================
 
