@@ -176,13 +176,30 @@ def main():
         print(f"[Info] Using class weights: class0={float(cw[0]):.3f}, class1={float(cw[1]):.3f}")
 
     fp16_flag = torch.cuda.is_available()
-    
-    # Use bf16 if available (better for T4+)
     bf16_flag = False
-    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-        bf16_flag = True
-        fp16_flag = False
-        print("[Optimization] Using bfloat16 (better than fp16 on modern GPUs)")
+    tf32_flag = False
+    
+    # Check GPU architecture for optimizations
+    if torch.cuda.is_available():
+        # Get GPU capability
+        gpu_capability = torch.cuda.get_device_capability()
+        gpu_name = torch.cuda.get_device_name(0)
+        print(f"[GPU] {gpu_name} (Compute Capability: {gpu_capability[0]}.{gpu_capability[1]})")
+        
+        # BF16: Ampere+ (compute capability >= 8.0)
+        if gpu_capability[0] >= 8 and torch.cuda.is_bf16_supported():
+            bf16_flag = True
+            fp16_flag = False
+            print("[Optimization] Using bfloat16 (Ampere+ GPU)")
+        else:
+            print("[Optimization] Using fp16 (pre-Ampere GPU)")
+        
+        # TF32: Only Ampere+ (compute capability >= 8.0)
+        if gpu_capability[0] >= 8:
+            tf32_flag = True
+            print("[Optimization] TF32 enabled (Ampere+ GPU)")
+        else:
+            print("[Info] TF32 not available (requires Ampere or newer)")
 
     args = TrainingArguments(
         output_dir=OUTPUT_DIR,
@@ -218,8 +235,8 @@ def main():
         report_to="none",
         seed=SEED,
         
-        # Speed optimizations
-        tf32=True if torch.cuda.is_available() else False,  # TF32 matmul on Ampere+ GPUs
+        # Speed optimizations (only for Ampere+ GPUs)
+        tf32=tf32_flag,
     )
 
     # Trainer initialization (compatible with old and new transformers versions)
@@ -280,7 +297,7 @@ def main():
         "bf16": bf16_flag,
         "gradient_checkpointing": USE_GRADIENT_CHECKPOINTING,
         "optimizer": "adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",
-        "tf32": torch.cuda.is_available(),
+        "tf32": tf32_flag,
     }
     
     # Load training history

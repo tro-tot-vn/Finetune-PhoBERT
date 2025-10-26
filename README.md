@@ -9,6 +9,7 @@ Fine-tuning PhoBERT cho Vietnamese text moderation (binary classification: valid
 - ✅ Early stopping với best checkpoint selection
 - ✅ Comprehensive training reports & visualizations
 - ✅ Multiple evaluation metrics (ROC, PR curve, threshold analysis)
+- ⚡ GPU optimized (2x faster on T4: ~12-15 min for 24K samples)
 
 ## 🚀 Quick Start
 

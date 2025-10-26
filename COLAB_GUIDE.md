@@ -143,6 +143,31 @@ drive.mount('/content/drive')
 3. **Save checkpoints**: Model tự động lưu best checkpoint
 4. **Download early**: Download results ngay sau train để tránh mất data
 
+## ⚡ GPU Optimization (T4)
+
+**Code đã được optimize sẵn!** Chỉ cần chạy bình thường:
+- ✅ Batch size tối ưu (16/32)
+- ✅ BF16/FP16 mixed precision
+- ✅ Gradient checkpointing
+- ✅ Fused optimizer
+- ✅ Parallel data loading
+
+**Expected speed**: ~12-15 phút cho 24K samples (3 epochs)
+
+### Monitor GPU:
+```python
+!nvidia-smi  # Check VRAM usage
+```
+
+### If OOM (out of memory):
+Edit `src/train.py`:
+```python
+BATCH_TRAIN = 12  # Giảm từ 16
+BATCH_EVAL = 24   # Giảm từ 32
+```
+
+Chi tiết: Xem [GPU_OPTIMIZATION.md](GPU_OPTIMIZATION.md)
+
 ---
 
 ## 📊 Expected Output Structure
