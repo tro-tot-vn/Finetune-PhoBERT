@@ -1,0 +1,13 @@
+torch
+transformers
+datasets
+accelerate
+evaluate
+scikit-learn
+pandas
+numpy
+emoji
+unidecode
+fastapi
+uvicorn
+onnxruntime

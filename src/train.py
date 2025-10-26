@@ -1,0 +1,176 @@
+import os
+import pandas as pd
+import numpy as np
+import torch
+from torch.nn import CrossEntropyLoss
+from sklearn.utils.class_weight import compute_class_weight
+
+from datasets import Dataset, DatasetDict
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    DataCollatorWithPadding,
+    TrainingArguments,
+    Trainer,
+    EarlyStoppingCallback,
+)
+import evaluate
+
+# ========================== CẤU HÌNH CƠ BẢN ==========================
+MODEL_NAME = "vinai/phobert-base-v2"
+DATA_DIR   = "data"      # chứa train.csv, valid.csv, test.csv
+OUTPUT_DIR = "out/phobert-moderation"
+SAVE_DIR   = "models/phobert-moderation"
+
+MAX_LENGTH = 192
+BATCH_TRAIN = 8
+BATCH_EVAL  = 16
+GRAD_ACCUM  = 2          # giữ batch hiệu dụng lớn: BATCH_TRAIN * GRAD_ACCUM
+EPOCHS      = 3
+LR          = 2e-5
+
+SEED        = 42
+# ====================================================================
+
+def read_split(data_dir):
+    def _load(path):
+        df = pd.read_csv(path)
+        # chuẩn hoá kiểu dữ liệu
+        df["text"] = df["text"].astype(str)
+        df["label"] = df["label"].astype(int)
+        return df
+
+    train_df = _load(os.path.join(data_dir, "train.csv"))
+    valid_df = _load(os.path.join(data_dir, "valid.csv"))
+    test_df  = _load(os.path.join(data_dir, "test.csv"))
+
+    ds = DatasetDict({
+        "train": Dataset.from_pandas(train_df, preserve_index=False),
+        "validation": Dataset.from_pandas(valid_df, preserve_index=False),
+        "test": Dataset.from_pandas(test_df, preserve_index=False),
+    })
+    return ds, train_df, valid_df, test_df
+
+def build_tokenizer():
+    # PhoBERT thường dùng tokenizer không-fast
+    tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+    return tok
+
+def encode_datasets(ds, tokenizer):
+    def preprocess(batch):
+        return tokenizer(
+            batch["text"],
+            truncation=True,
+            max_length=MAX_LENGTH,
+        )
+    enc = ds.map(preprocess, batched=True, remove_columns=["text"])
+    return enc
+
+# ====== Metrics (ưu tiên lớp invalid = 1) ======
+accuracy = evaluate.load("accuracy")
+precision = evaluate.load("precision")
+recall = evaluate.load("recall")
+f1 = evaluate.load("f1")
+
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    preds = (logits[:, 1] > logits[:, 0]).astype(int)
+    return {
+        "accuracy": accuracy.compute(predictions=preds, references=labels)["accuracy"],
+        "precision_inv": precision.compute(predictions=preds, references=labels, pos_label=1)["precision"],
+        "recall_inv": recall.compute(predictions=preds, references=labels, pos_label=1)["recall"],
+        "f1_inv": f1.compute(predictions=preds, references=labels, pos_label=1)["f1"],
+    }
+
+# ====== Tự động class weights nếu lệch lớp ======
+def get_class_weights(train_df):
+    labels = train_df["label"].values
+    classes = np.unique(labels)
+    if len(classes) == 2:
+        weights = compute_class_weight(class_weight="balanced", classes=classes, y=labels)
+        # trả về theo thứ tự [w_class0, w_class1]
+        return torch.tensor(weights, dtype=torch.float)
+    return None
+
+class WeightedTrainer(Trainer):
+    def __init__(self, class_weight=None, **kwargs):
+        super().__init__(**kwargs)
+        self.class_weight = class_weight
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs.get("labels")
+        outputs = model(**{k: v for k, v in inputs.items() if k != "labels"})
+        logits = outputs.logits
+        if labels is not None:
+            if self.class_weight is not None:
+                loss_fct = CrossEntropyLoss(weight=self.class_weight.to(logits.device))
+            else:
+                loss_fct = CrossEntropyLoss()
+            loss = loss_fct(logits.view(-1, 2), labels.view(-1))
+        else:
+            loss = None
+        return (loss, outputs) if return_outputs else loss
+
+def main():
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+
+    ds, train_df, valid_df, test_df = read_split(DATA_DIR)
+    tokenizer = build_tokenizer()
+    enc = encode_datasets(ds, tokenizer)
+    collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8)
+
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
+
+    # class weights nếu imbalance
+    cw = get_class_weights(train_df)
+    if cw is not None:
+        print(f"[Info] Using class weights: class0={float(cw[0]):.3f}, class1={float(cw[1]):.3f}")
+
+    fp16_flag = torch.cuda.is_available()
+
+    args = TrainingArguments(
+        output_dir=OUTPUT_DIR,
+        learning_rate=LR,
+        per_device_train_batch_size=BATCH_TRAIN,
+        per_device_eval_batch_size=BATCH_EVAL,
+        gradient_accumulation_steps=GRAD_ACCUM,
+        num_train_epochs=EPOCHS,
+        weight_decay=0.01,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="f1_inv",  # ưu tiên F1 lớp invalid
+        fp16=fp16_flag,
+        logging_steps=50,
+        dataloader_num_workers=0,
+        report_to="none",
+        seed=SEED,
+    )
+
+    trainer = WeightedTrainer(
+        class_weight=cw,
+        model=model,
+        args=args,
+        train_dataset=enc["train"],
+        eval_dataset=enc["validation"],
+        tokenizer=tokenizer,
+        data_collator=collator,
+        compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
+    )
+
+    trainer.train()
+    print("\n[Validation metrics (best ckpt)]:")
+    print(trainer.evaluate(enc["validation"]))
+
+    print("\n[Test metrics]:")
+    print(trainer.evaluate(enc["test"]))
+
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    trainer.save_model(SAVE_DIR)
+    tokenizer.save_pretrained(SAVE_DIR)
+    print(f"\n[Saved model] -> {SAVE_DIR}")
+
+if __name__ == "__main__":
+    main()
