@@ -5,6 +5,7 @@ import torch
 from torch.nn import CrossEntropyLoss
 from sklearn.utils.class_weight import compute_class_weight
 from callbacks import JsonLossLogger
+from report_generator import generate_report, load_training_history
 
 from datasets import Dataset, DatasetDict
 from transformers import (
@@ -112,11 +113,35 @@ class WeightedTrainer(Trainer):
             loss = None
         return (loss, outputs) if return_outputs else loss
 
+def get_data_stats(train_df, valid_df, test_df):
+    """Tính thống kê data cho báo cáo."""
+    stats = {}
+    for name, df in [("train", train_df), ("validation", valid_df), ("test", test_df)]:
+        total = len(df)
+        class_0 = (df["label"] == 0).sum()
+        class_1 = (df["label"] == 1).sum()
+        stats[name] = {
+            "total": int(total),
+            "class_0": int(class_0),
+            "class_0_pct": float(class_0 / total * 100),
+            "class_1": int(class_1),
+            "class_1_pct": float(class_1 / total * 100),
+        }
+    return stats
+
 def main():
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
     ds, train_df, valid_df, test_df = read_split(DATA_DIR)
+    
+    # Tính data statistics
+    data_stats = get_data_stats(train_df, valid_df, test_df)
+    print("\n[Data Statistics]")
+    for split, stats in data_stats.items():
+        print(f"  {split}: {stats['total']} samples "
+              f"(valid: {stats['class_0']}/{stats['class_0_pct']:.1f}%, "
+              f"invalid: {stats['class_1']}/{stats['class_1_pct']:.1f}%)")
     tokenizer = build_tokenizer()
     enc = encode_datasets(ds, tokenizer)
     collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8)
@@ -164,16 +189,58 @@ def main():
     )
 
     trainer.train()
+    
+    # Evaluate
     print("\n[Validation metrics (best ckpt)]:")
-    print(trainer.evaluate(enc["validation"]))
+    best_val_metrics = trainer.evaluate(enc["validation"])
+    print(best_val_metrics)
 
     print("\n[Test metrics]:")
-    print(trainer.evaluate(enc["test"]))
+    test_metrics = trainer.evaluate(enc["test"])
+    print(test_metrics)
 
+    # Save model
     os.makedirs(SAVE_DIR, exist_ok=True)
     trainer.save_model(SAVE_DIR)
     tokenizer.save_pretrained(SAVE_DIR)
     print(f"\n[Saved model] -> {SAVE_DIR}")
+    
+    # Generate comprehensive report
+    print("\n[Generating Training Report...]")
+    
+    # Collect configuration
+    config = {
+        "model_name": MODEL_NAME,
+        "max_length": MAX_LENGTH,
+        "batch_size_train": BATCH_TRAIN,
+        "batch_size_eval": BATCH_EVAL,
+        "gradient_accumulation_steps": GRAD_ACCUM,
+        "effective_batch_size": BATCH_TRAIN * GRAD_ACCUM,
+        "num_train_epochs": EPOCHS,
+        "learning_rate": LR,
+        "weight_decay": 0.01,
+        "seed": SEED,
+        "fp16": fp16_flag,
+    }
+    
+    # Load training history
+    training_history = load_training_history("out/metrics/train_log.ndjson")
+    
+    # Class weights
+    class_weights_list = cw.tolist() if cw is not None else None
+    
+    # Generate report
+    generate_report(
+        config=config,
+        data_stats=data_stats,
+        class_weights=class_weights_list,
+        training_history=training_history,
+        best_metrics=best_val_metrics,
+        test_metrics=test_metrics,
+        output_dir="out/metrics"
+    )
+    
+    print("\n[Done] All training artifacts saved!")
 
 if __name__ == "__main__":
     main()
