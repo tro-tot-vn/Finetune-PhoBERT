@@ -138,6 +138,19 @@ def get_data_stats(train_df, valid_df, test_df):
     return stats
 
 def main():
+    # Fix tqdm for Colab/Jupyter - prevent progress bar spam
+    import sys
+    import os
+    
+    # Detect Colab/Jupyter environment
+    in_notebook = 'ipykernel' in sys.modules or 'google.colab' in sys.modules
+    
+    if in_notebook:
+        # In Jupyter/Colab: reduce progress bar update frequency
+        os.environ['TQDM_MININTERVAL'] = '10'  # Update every 10 seconds instead of every iteration
+        os.environ['TQDM_MAXINTERVAL'] = '30'  # Max 30 seconds between updates
+        print("[Colab] Progress bars configured for Jupyter/Colab (updates every 10s)")
+    
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
@@ -222,10 +235,14 @@ def main():
         optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",  # Fused optimizer (faster)
         gradient_checkpointing=USE_GRADIENT_CHECKPOINTING,
         
-        # Logging & saving
+        # Logging & saving (Colab-friendly!)
         logging_strategy="steps",
-        logging_steps=50,
+        logging_steps=100,  # ↑ Increased from 50 to reduce spam
         save_steps=0,
+        disable_tqdm=False,  # Keep progress bars
+        log_level="warning",  # ↓ Reduce INFO spam
+        log_level_replica="warning",  # ↓ Reduce replica logs
+        logging_first_step=False,  # Skip logging first step (reduce clutter)
         
         # DataLoader optimization
         dataloader_num_workers=2,  # ↑ Parallel data loading (Colab has 2 CPUs)
