@@ -58,8 +58,14 @@ def read_split(data_dir):
     return ds, train_df, valid_df, test_df
 
 def build_tokenizer():
-    # PhoBERT thường dùng tokenizer không-fast
-    tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+    # Use fast tokenizer for SPEED! (Rust-based)
+    # Legacy PhoBERT docs say use_fast=False, but fast tokenizer works fine and is MUCH faster
+    try:
+        tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
+        print("[Tokenizer] Using FAST tokenizer (Rust-based, 10x faster!)")
+    except:
+        tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+        print("[Tokenizer] Fast tokenizer not available, using slow version")
     return tok
 
 def encode_datasets(ds, tokenizer):
@@ -69,7 +75,20 @@ def encode_datasets(ds, tokenizer):
             truncation=True,
             max_length=MAX_LENGTH,
         )
-    enc = ds.map(preprocess, batched=True, remove_columns=["text"])
+    # Cache tokenized data to disk for speed!
+    cache_dir = ".cache/encoded_datasets"
+    enc = ds.map(
+        preprocess, 
+        batched=True, 
+        remove_columns=["text"],
+        num_proc=1,  # Single process for Colab
+        load_from_cache_file=True,  # Reuse cache if available
+        cache_file_names={
+            "train": f"{cache_dir}/train.arrow",
+            "validation": f"{cache_dir}/valid.arrow", 
+            "test": f"{cache_dir}/test.arrow"
+        }
+    )
     return enc
 
 # ====== Metrics (ưu tiên lớp invalid = 1) ======
