@@ -244,7 +244,7 @@ def main():
                        help='Confidence threshold (default: 0.95)')
     parser.add_argument('--ratio', type=int, default=70,
                        help='Clean ratio percentage (default: 70 for 70-30)')
-    parser.add_argument('--output_dir', type=str, default='data',
+    parser.add_argument('--output_dir', type=str, default='',
                        help='Output directory (default: /)')
     parser.add_argument('--train_ratio', type=float, default=0.8,
                        help='Train split ratio (default: 0.8)')
