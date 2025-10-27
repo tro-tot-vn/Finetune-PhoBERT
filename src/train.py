@@ -25,10 +25,10 @@ OUTPUT_DIR = "out/phobert-moderation"
 SAVE_DIR   = "models/phobert-moderation"
 
 MAX_LENGTH = 192
-BATCH_TRAIN = 32         # ↑↑ Tăng mạnh để ăn đầy VRAM (was 16)
-BATCH_EVAL  = 64         # ↑↑ Tăng mạnh (was 32)
-GRAD_ACCUM  = 1          # ↓ Giảm vì batch đã lớn (effective = 32)
-EPOCHS      = 3
+BATCH_TRAIN = 48         # ↑↑ TĂNG MẠNH để ăn đầy VRAM! (was 24, too small!)
+BATCH_EVAL  = 96         # ↑↑ TĂNG MẠNH (was 48)
+GRAD_ACCUM  = 1          # Giữ nguyên
+EPOCHS      = 2          # Optimal cho large dataset >500K
 LR          = 2e-5
 
 SEED        = 42
@@ -244,9 +244,10 @@ def main():
         log_level_replica="warning",  # ↓ Reduce replica logs
         logging_first_step=False,  # Skip logging first step (reduce clutter)
         
-        # DataLoader optimization
-        dataloader_num_workers=2,  # ↑ Parallel data loading (Colab has 2 CPUs)
+        # DataLoader optimization (optimized for large datasets)
+        dataloader_num_workers=0,  # ↓ Set to 0 for Colab (multiprocessing overhead on large data)
         dataloader_pin_memory=True,  # Faster CPU->GPU transfer
+        dataloader_prefetch_factor=None,  # Auto-tune prefetch
         
         # Misc
         report_to="none",
