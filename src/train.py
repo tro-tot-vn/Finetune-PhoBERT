@@ -25,8 +25,8 @@ OUTPUT_DIR = "out/phobert-moderation"
 SAVE_DIR   = "models/phobert-moderation"
 
 MAX_LENGTH = 192
-BATCH_TRAIN = 48         # ↑↑ TĂNG MẠNH để ăn đầy VRAM! (was 24, too small!)
-BATCH_EVAL  = 96         # ↑↑ TĂNG MẠNH (was 48)
+BATCH_TRAIN = 80         # ↑↑↑ AGGRESSIVE! Aim for 12-13GB VRAM
+BATCH_EVAL  = 160        # ↑↑↑ PUSH HARDER!
 GRAD_ACCUM  = 1          # Giữ nguyên
 EPOCHS      = 2          # Optimal cho large dataset >500K
 LR          = 2e-5
