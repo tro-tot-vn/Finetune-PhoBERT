@@ -25,8 +25,8 @@ OUTPUT_DIR = "out/phobert-moderation"
 SAVE_DIR   = "models/phobert-moderation"
 
 MAX_LENGTH = 192
-BATCH_TRAIN = 80         # ↑↑↑ AGGRESSIVE! Aim for 12-13GB VRAM
-BATCH_EVAL  = 160        # ↑↑↑ PUSH HARDER!
+BATCH_TRAIN = 96         # ↑↑↑ MAX OUT! (8.1GB → target 12-13GB)
+BATCH_EVAL  = 192        # ↑↑↑ HUGE!
 GRAD_ACCUM  = 1          # Giữ nguyên
 EPOCHS      = 2          # Optimal cho large dataset >500K
 LR          = 2e-5
@@ -58,14 +58,10 @@ def read_split(data_dir):
     return ds, train_df, valid_df, test_df
 
 def build_tokenizer():
-    # Use fast tokenizer for SPEED! (Rust-based)
-    # Legacy PhoBERT docs say use_fast=False, but fast tokenizer works fine and is MUCH faster
-    try:
-        tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
-        print("[Tokenizer] Using FAST tokenizer (Rust-based, 10x faster!)")
-    except:
-        tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
-        print("[Tokenizer] Fast tokenizer not available, using slow version")
+    # PhoBERT uses SentencePiece (no fast tokenizer available)
+    # Workaround: Pre-tokenize and cache aggressively
+    tok = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+    print("[Tokenizer] PhoBERT tokenizer (SentencePiece-based)")
     return tok
 
 def encode_datasets(ds, tokenizer):
@@ -74,21 +70,24 @@ def encode_datasets(ds, tokenizer):
             batch["text"],
             truncation=True,
             max_length=MAX_LENGTH,
+            padding=False,  # Don't pad during preprocessing (DataCollator will handle)
         )
-    # Cache tokenized data to disk for speed!
-    cache_dir = ".cache/encoded_datasets"
+    
+    print("[Encoding] Tokenizing datasets (this takes ~2 min, cached after first run)...")
+    
+    # Aggressive batching for tokenization
     enc = ds.map(
         preprocess, 
-        batched=True, 
+        batched=True,
+        batch_size=5000,  # HUGE batches for tokenization (faster!)
         remove_columns=["text"],
-        num_proc=1,  # Single process for Colab
+        num_proc=1,  # Single process (Colab multiprocessing has issues)
         load_from_cache_file=True,  # Reuse cache if available
-        cache_file_names={
-            "train": f"{cache_dir}/train.arrow",
-            "validation": f"{cache_dir}/valid.arrow", 
-            "test": f"{cache_dir}/test.arrow"
-        }
+        desc="Tokenizing",
+        writer_batch_size=5000,  # Write in large batches
     )
+    
+    print("[Encoding] Tokenization complete!")
     return enc
 
 # ====== Metrics (ưu tiên lớp invalid = 1) ======
@@ -184,7 +183,16 @@ def main():
               f"invalid: {stats['class_1']}/{stats['class_1_pct']:.1f}%)")
     tokenizer = build_tokenizer()
     enc = encode_datasets(ds, tokenizer)
-    collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8)
+    
+    # Optimize padding for speed
+    collator = DataCollatorWithPadding(
+        tokenizer=tokenizer, 
+        pad_to_multiple_of=8,
+        return_tensors="pt"
+    )
+    
+    # Set dataset format for faster loading
+    enc.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
 
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2)
     
