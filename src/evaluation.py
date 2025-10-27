@@ -26,14 +26,45 @@ def load_model():
     torch.set_grad_enabled(False)
     return tok, model
 
-def predict_probs(tokenizer, model, texts):
-    probs = []
-    for s in texts:
-        enc = tokenizer(s.strip(), return_tensors="pt", truncation=True, max_length=MAX_LENGTH)
-        logits = model(**enc).logits
-        p = torch.softmax(logits, dim=-1)[0, 1].item()  # prob lớp 1 (invalid)
-        probs.append(p)
-    return np.array(probs)
+def predict_probs(tokenizer, model, texts, batch_size=64):
+    """
+    Batch prediction - NHANH HỚN 10-20x so với single prediction!
+    
+    Args:
+        batch_size: Số samples per batch (64 = sweet spot cho T4)
+    """
+    from tqdm import tqdm
+    
+    # Move model to GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    
+    all_probs = []
+    print(f"[Predicting] {len(texts)} samples with batch_size={batch_size}...")
+    
+    # Process in batches
+    for i in tqdm(range(0, len(texts), batch_size), desc="Inference"):
+        batch_texts = [s.strip() for s in texts[i:i+batch_size]]
+        
+        # Tokenize batch
+        enc = tokenizer(
+            batch_texts,
+            padding=True,
+            truncation=True,
+            max_length=MAX_LENGTH,
+            return_tensors="pt"
+        )
+        
+        # Move to device
+        enc = {k: v.to(device) for k, v in enc.items()}
+        
+        # Predict
+        with torch.no_grad():
+            logits = model(**enc).logits
+            probs = torch.softmax(logits, dim=-1)[:, 1]  # prob lớp 1 (invalid)
+            all_probs.extend(probs.cpu().numpy())
+    
+    return np.array(all_probs)
 
 def plot_confusion_matrix(cm, labels, path, normalize=False):
     """

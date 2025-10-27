@@ -14,6 +14,31 @@
 !pip install -q -r requirements.txt
 ```
 
+### Cell 1.5 (OPTIONAL): Prepare VOZ-HSD Dataset
+```python
+# Skip this if you already have data in data/ folder
+# This downloads and prepares balanced VOZ-HSD dataset
+
+%cd /content/Finetune-PhoBERT/data
+
+# Option A: Default (70-30, probs≥0.95) - Recommended
+!python prepare_voz_balanced.py
+
+# Option B: More conservative (80-20, better UX)
+# !python prepare_voz_balanced.py --confidence 0.95 --ratio 80
+
+# Option C: Higher recall (60-40, catch more hate)
+# !python prepare_voz_balanced.py --confidence 0.90 --ratio 60
+
+# Check summary
+!cat dataset_summary.txt
+
+%cd /content/Finetune-PhoBERT
+```
+
+**Expected time:** 5-10 minutes for download + processing  
+**Output:** train.csv, valid.csv, test.csv (~547K total samples)
+
 ### Cell 2: Check Data
 ```python
 import pandas as pd
@@ -143,27 +168,40 @@ drive.mount('/content/drive')
 3. **Save checkpoints**: Model tự động lưu best checkpoint
 4. **Download early**: Download results ngay sau train để tránh mất data
 
-## ⚡ GPU Optimization (T4)
+## ⚡ GPU Optimization (T4) - AGGRESSIVE! 🔥
 
-**Code đã được optimize sẵn!** Chỉ cần chạy bình thường:
-- ✅ Batch size tối ưu (16/32)
-- ✅ BF16/FP16 mixed precision
-- ✅ Gradient checkpointing
+**Code đã được optimize MẠNH để ăn đầy VRAM!**
+- ✅ Batch size MAX (32/64) - no more 2.7GB waste!
+- ✅ FP16 mixed precision
+- ✅ Gradient checkpointing OFF (for speed)
 - ✅ Fused optimizer
 - ✅ Parallel data loading
 
-**Expected speed**: ~12-15 phút cho 24K samples (3 epochs)
+**Expected:**
+- VRAM usage: **~12-13GB / 16GB** (80%+) ✅
+- Training speed: **~8-10 phút** cho 24K samples (3 epochs) 🚀
+- GPU utilization: **85-95%**
 
-### Monitor GPU:
+### Monitor GPU (IMPORTANT):
 ```python
-!nvidia-smi  # Check VRAM usage
+!watch -n 1 nvidia-smi  # Live monitoring (Ctrl+C to stop)
 ```
 
+**Should see:**
+- Memory: **12-13GB / 16GB** (not 2.7GB!)
+- GPU Util: **85-95%**
+
 ### If OOM (out of memory):
-Edit `src/train.py`:
+Edit `src/train.py` lines 28-29:
 ```python
-BATCH_TRAIN = 12  # Giảm từ 16
-BATCH_EVAL = 24   # Giảm từ 32
+BATCH_TRAIN = 24  # Giảm từ 32
+BATCH_EVAL = 48   # Giảm từ 64
+```
+
+### If VRAM < 10GB (still wasting):
+```python
+BATCH_TRAIN = 40  # Tăng lên!
+BATCH_EVAL = 80
 ```
 
 Chi tiết: Xem [GPU_OPTIMIZATION.md](GPU_OPTIMIZATION.md)
